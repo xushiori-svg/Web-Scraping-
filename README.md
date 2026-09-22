@@ -1,9 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Growth Rate vs. Annual Openings: Which One Tells You Where the Jobs Are?
 
 ## Question
