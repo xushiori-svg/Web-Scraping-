@@ -66,6 +66,7 @@ p_decomp <- ooh |>
   ggplot(aes(x = page_title, y = n, fill = source)) +
   geom_col() +
   coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
   scale_fill_manual(
     values = c(from_growth = "#2c7fb8", from_replacement = "#bdbdbd"),
     labels = c("New jobs from growth", "Replacing workers who leave")
@@ -75,8 +76,14 @@ p_decomp <- ooh |>
     x = NULL, y = "Projected annual openings", fill = NULL,
     caption = "Source: U.S. Bureau of Labor Statistics, Occupational Outlook Handbook"
   ) +
-  theme_minimal(base_size = 13) +
-  theme(legend.position = "bottom")
+  theme_minimal(base_size = 18) +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 20, face = "bold"),
+    legend.text = element_text(size = 14)
+  )
 
 ggsave(here("results", "figures", "openings_decomposition.png"),
        p_decomp, width = 15, height = 10, dpi = 200)
