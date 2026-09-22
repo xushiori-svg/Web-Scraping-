@@ -1,16 +1,10 @@
-# 01_scrape.R -------------------------------------------------------------
+# 01_scrape.R
 # Question : Across ALL occupations in the BLS Occupational Outlook Handbook,
 #            does a high projected growth RATE actually mean a lot of yearly
 #            job OPENINGS -- or are these two different signals?
 # Source   : U.S. Bureau of Labor Statistics, Occupational Outlook Handbook (OOH)
 #            - A-Z Index page (to get the full list of occupation profile URLs)
 #            - one Quick Facts table per occupation profile page
-#
-# >>> FILL-IN-BEFORE-RUNNING <<<
-#   1. USER_AGENT   below -- put your real name + UPenn email
-#   2. Read data/raw/bls_robots.txt yourself after the first run, and skim
-#      https://www.bls.gov/bls/website-policies.htm , to confirm scraping is OK.
-#      (The script also runs an automated check, but don't rely on that alone.)
 #
 # Output:
 #   data/raw/bls_robots.txt              robots.txt, saved for documentation
@@ -27,14 +21,17 @@ library(here)
 library(robotstxt)
 
 # 0. Settings ---------------------------------------------------------------
-USER_AGENT    <- "AEDS6400-class-project (YOUR NAME; YOUR_EMAIL@upenn.edu)"  # <-- fill in
-DELAY_SECONDS <- 5     # pause after every REAL request (cached pages are skipped, no pause)
+USER_AGENT    <- "AEDS6400-class-project (Clara Xu; jiayinxu@sas.upenn.edu)"
+DELAY_SECONDS <- 5 
 AZ_INDEX_URL  <- "https://www.bls.gov/ooh/a-z-index.htm"
 
 dir.create(here("data", "raw", "html"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("data", "clean"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("results", "figures"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("results", "tables"), recursive = TRUE, showWarnings = FALSE)
 
 fetch_html <- function(url, path, user_agent = USER_AGENT) {
-  # Downloads url to path if not already cached. Returns "cached" or the HTTP status code.
+  # Downloads url
   if (file.exists(path)) return("cached")
 
   resp <- request(url) |>
@@ -49,7 +46,7 @@ fetch_html <- function(url, path, user_agent = USER_AGENT) {
   as.character(status)
 }
 
-# 1. Ethics check: robots.txt ------------------------------------------------
+# 1. Ethics check: robots.txt
 robots_resp <- request("https://www.bls.gov/robots.txt") |>
   req_user_agent(USER_AGENT) |>
   req_error(is_error = \(resp) FALSE) |>
@@ -69,20 +66,12 @@ if (!isTRUE(all(check_allowed(c("/ooh/a-z-index.htm", "/ooh/"))))) {
        "Read data/raw/bls_robots.txt by hand before continuing.")
 }
 
-# 2. Get the full occupation list from the A-Z index -------------------------
+# 2. Get the full occupation list from the A-Z index
 az_path <- here("data", "raw", "html", "az_index.html")
 fetch_html(AZ_INDEX_URL, az_path)
 
 az_page <- read_html(az_path)
 
-# BLS uses RELATIVE hrefs like "/ooh/construction-and-extraction/electricians.htm".
-# Occupation profile links always have exactly two path segments after /ooh/:
-# a group folder and an occupation slug ending in .htm. Non-occupation pages
-# under /ooh/ (home.htm, print/, about/, how-to-find-a-job/, occupation-finder.htm,
-# a-z-index.htm, ooh-site-map.htm) only have ONE segment after /ooh/, or live
-# under an excluded folder, so the two-segment pattern already excludes them.
-# "See:" cross-references point to the SAME href as the canonical entry, so
-# de-duplicating by href automatically collapses them into one row per occupation.
 occ_links <- az_page |>
   html_elements("a") |>
   (\(nodes) tibble(
@@ -104,7 +93,7 @@ occ_links <- az_page |>
 write_csv(occ_links, here("data", "raw", "occupation_list.csv"))
 message("Occupations found on A-Z index: ", nrow(occ_links))
 
-# 3. Download every occupation profile page -----------------------------------
+# 3. Download every occupation profile page
 occ_links <- occ_links |>
   mutate(html_path = here("data", "raw", "html", paste0(slug, ".html")))
 
@@ -121,19 +110,13 @@ if (nrow(failed) > 0) {
   warning(nrow(failed), " page(s) failed to download. See data/raw/scrape_log.csv.")
 }
 
-# 4. Parse the Quick Facts table on each page with rvest -----------------------
+# 4. Parse the Quick Facts table on each page with rvest
 parse_profile <- function(path) {
   page      <- read_html(path)
   body_text <- page |> html_element("body") |> html_text2()
 
-  # Pull every table on the page as a data frame. header = FALSE keeps this
-  # positional so we don't lose the first data row to an inferred header.
   all_tables <- html_table(page, fill = TRUE, header = FALSE)
 
-  # The Quick Facts table is identified by CONTENT ("Median Pay" appears in
-  # one of its cells), not by assuming a fixed column count -- some rows have
-  # extra blank <td> cells (e.g. between the label and "$83,680 per year"),
-  # so a row can have more than 2 columns.
   qf_candidates <- keep(all_tables, \(tb) isTRUE(any(str_detect(as.character(unlist(tb)), "Median Pay"), na.rm = TRUE)))
   qf <- if (length(qf_candidates) > 0) qf_candidates[[1]] else NULL
 
@@ -147,16 +130,6 @@ parse_profile <- function(path) {
     paste(row_vals[-1], collapse = " ")   # everything in the row after the label
   }
 
-  # The all-occupations benchmarks (pay and growth comparisons) are rendered
-  # as <dl> definition lists on the live page, NOT as <table> elements, so we
-  # search those separately. Tell the two lists apart by whether the value
-  # next to "Total, all occupations" contains "$" or "%".
-  # The all-occupations benchmarks (pay and growth comparisons) are rendered
-  # as <dl> definition lists on the live page, NOT as <table> elements. Some
-  # occupations show BOTH an annual-wage comparison chart and an hourly-wage
-  # comparison chart, each with its own "Total, all occupations" row -- so we
-  # collect every "$" candidate and keep the LARGEST one (annual pay, in the
-  # thousands, is always far bigger than an hourly rate, which is under $100).
   dls <- page |> html_elements("dl")
   wage_candidates    <- character(0)
   growth_bench_value <- NA_character_
@@ -171,10 +144,7 @@ parse_profile <- function(path) {
   wage_bench_value <- NA_character_
   if (length(wage_candidates) > 0) {
     nums <- wage_candidates |> str_extract("\\$[0-9,.]+") |> str_remove_all("[$,]") |> as.numeric()
-    # A national ANNUAL wage benchmark is always in the tens of thousands.
-    # Anything under $1,000 is an hourly-rate comparison chart, not the
-    # annual one -- some low-wage occupation pages only show the hourly
-    # chart, so reject those candidates outright rather than accepting them.
+ 
     plausible <- wage_candidates[nums >= 1000]
     if (length(plausible) > 0) {
       plausible_nums <- plausible |> str_extract("\\$[0-9,.]+") |> str_remove_all("[$,]") |> as.numeric()
@@ -204,7 +174,6 @@ ooh_raw <- occ_links |>
   filter(status %in% c("cached", "200")) |>
   mutate(facts = map(html_path, safely(parse_profile)))
 
-# report any pages that failed to parse (not the same as failing to download)
 parse_errors <- ooh_raw |> filter(map_lgl(facts, \(f) !is.null(f$error)))
 if (nrow(parse_errors) > 0) {
   warning(nrow(parse_errors), " page(s) downloaded but failed to parse. ",
@@ -221,7 +190,7 @@ ooh_raw <- ooh_raw |>
 
 write_csv(ooh_raw, here("data", "raw", "ooh_quick_facts_raw.csv"))
 
-# 5. Quick sanity checks --------------------------------------------------
+# 5. Quick sanity checks
 glimpse(ooh_raw)
 message("Occupations scraped: ", nrow(ooh_raw), " of ", nrow(occ_links))
 message("Missing median_pay: ", sum(is.na(ooh_raw$median_pay)))

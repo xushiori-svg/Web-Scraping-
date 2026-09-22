@@ -1,4 +1,4 @@
-# 03_analysis.R --------------------------------------------------------------
+# 03_analysis.R
 # Input : data/clean/ooh_analysis.csv
 # Output: results/figures/*.png, results/tables/*.csv
 
@@ -10,7 +10,7 @@ ooh <- read_csv(here("data", "clean", "ooh_analysis.csv"), show_col_types = FALS
 dir.create(here("results", "figures"), recursive = TRUE, showWarnings = FALSE)
 dir.create(here("results", "tables"),  recursive = TRUE, showWarnings = FALSE)
 
-# 1. Do growth rate and openings rank occupations the same way? --------------
+# 1. Do growth rate and openings rank occupations the same way?
 cor_pearson  <- cor(ooh$growth_pct, ooh$openings_per_year_n, use = "complete.obs")
 cor_spearman <- cor(ooh$growth_pct, ooh$openings_per_year_n,
                      method = "spearman", use = "complete.obs")
@@ -31,7 +31,7 @@ write_csv(
   here("results", "tables", "growth_vs_openings_correlation.csv")
 )
 
-# 2. Scatter: growth rate vs openings, sized by current employment -----------
+# 2. Scatter: growth rate vs openings, sized by current employment
 p_scatter <- ooh |>
   ggplot(aes(x = growth_pct, y = openings_per_year_n, size = jobs_2025_n)) +
   geom_point(alpha = 0.5) +
@@ -49,7 +49,7 @@ p_scatter <- ooh |>
 ggsave(here("results", "figures", "growth_vs_openings_scatter.png"),
        p_scatter, width = 8, height = 6, dpi = 200)
 
-# 3. Openings decomposition: how much comes from growth vs. replacement ------
+# 3. Openings decomposition: how much comes from growth vs. replacement
 p_decomp <- ooh |>
   filter(openings_per_year_n > 0) |>
   slice_max(openings_per_year_n, n = 15) |>
@@ -81,8 +81,7 @@ p_decomp <- ooh |>
 ggsave(here("results", "figures", "openings_decomposition.png"),
        p_decomp, width = 15, height = 10, dpi = 200)
 
-# 4. Actionable table: by education level, best-openings occupations ---------
-# "best" = above-median pay AND above-median openings rate for that education tier
+# 4. Actionable table: by education level, best-openings occupations
 recommend_table <- ooh |>
   filter(!is.na(education_level), above_median_pay) |>
   group_by(education_level) |>
@@ -94,6 +93,6 @@ recommend_table <- ooh |>
 
 write_csv(recommend_table, here("results", "tables", "top_openings_by_education.csv"))
 
-# 5. Sanity print -------------------------------------------------------------
+# 5. Sanity print
 print(recommend_table, n = 40)
 message("Figures written to results/figures/, tables to results/tables/")

@@ -1,11 +1,6 @@
-# 02_clean.R ----------------------------------------------------------------
+# 02_clean.R
 # Input : data/raw/ooh_quick_facts_raw.csv  (from 01_scrape.R)
 # Output: data/clean/ooh_clean.csv
-#
-# NOTE: the exact wording BLS uses in each field (e.g. "$53,140 per year",
-# "37% (Much faster than average)") is consistent across the site as of the
-# 2025-35 projections cycle, but we print a sample of rows that FAIL to parse
-# so we can adjust the regexes together against your actual scraped file.
 
 library(tidyverse)
 library(here)
@@ -13,30 +8,21 @@ library(here)
 ooh_raw <- read_csv(here("data", "raw", "ooh_quick_facts_raw.csv"), show_col_types = FALSE)
 dir.create(here("data", "clean"), recursive = TRUE, showWarnings = FALSE)
 
-# --- helpers ---------------------------------------------------------------
 dollars_to_num <- function(x) {
-  # Prefer the ANNUAL figure ("$83,680 ... per year"). A few occupations only
-  # publish an hourly wage with no annual line (e.g. Announcers and DJs,
-  # "$22.50 per hour" only) -- for those, estimate the annual figure the same
-  # way BLS itself does: hourly rate x 2,080 standard full-time hours/year.
   annual <- x |> str_extract("(?i)\\$[0-9,]+(?=\\s*per year)") |> str_remove_all("[$,]") |> as.numeric()
   hourly <- x |> str_extract("(?i)\\$[0-9.]+(?=\\s*per hour)") |> str_remove_all("[$,]") |> as.numeric()
   ifelse(!is.na(annual), annual, hourly * 2080)
 }
 
 dollars_simple <- function(x) {
-  # For fields that are just a bare dollar figure with no "per year"/"per
-  # hour" suffix at all, e.g. the all_occ_median_wage benchmark ("$50,980").
   x |> str_extract("\\$[0-9,]+") |> str_remove_all("[$,]") |> as.numeric()
 }
 
 pct_to_num <- function(x) {
-  # "37% (Much faster than average)" -> 37
   x |> str_extract("-?[0-9.]+(?=%)") |> as.numeric()
 }
 
 int_to_num <- function(x) {
-  # "31,100" -> 31100 ; "-85,600" -> -85600 (declining occupations have a minus sign)
   x |> str_extract("-?[0-9,]+") |> str_remove_all(",") |> as.numeric()
 }
 
@@ -51,7 +37,7 @@ education_levels <- c(
   "Doctoral or professional degree"
 )
 
-# --- main cleaning -----------------------------------------------------------
+# cleaning
 ooh_clean <- ooh_raw |>
   mutate(
     median_pay_usd     = dollars_to_num(median_pay),
@@ -63,11 +49,6 @@ ooh_clean <- ooh_raw |>
     all_occ_growth_pct_n    = pct_to_num(all_occ_growth_pct)
   )
 
-# These two benchmarks are NATIONAL CONSTANTS -- identical for every
-# occupation. A handful of pages only show an hourly-wage comparison chart
-# (no annual one), so their benchmark didn't extract; fill those with the
-# value the rest of the dataset agrees on (the mode) rather than leaving
-# real occupations out of the analysis over a page-layout quirk.
 get_mode <- function(x) {
   x <- x[!is.na(x)]
   ux <- unique(x)
@@ -85,7 +66,6 @@ ooh_clean <- ooh_clean |>
     education_clean = str_squish(education),
     education_level  = factor(education_clean, levels = education_levels, ordered = TRUE),
 
-    # --- the metrics this whole post is built on --------------------------
     openings_rate_pct = 100 * openings_per_year_n / jobs_2025_n,      # openings per 100 jobs, per year
     growth_jobs_per_year = employment_change_n / 10,                  # 2025-35 change, annualized
     replacement_share = pmin(1, pmax(0, 1 - (growth_jobs_per_year / openings_per_year_n))),
@@ -93,7 +73,7 @@ ooh_clean <- ooh_clean |>
     above_median_pay   = pay_vs_national > 0
   )
 
-# --- data quality report ----------------------------------------------------
+#data quality report
 n_total <- nrow(ooh_clean)
 report <- ooh_clean |>
   summarise(
@@ -106,13 +86,11 @@ report <- ooh_clean |>
   )
 print(report)
 
-# Rows worth inspecting by hand if a lot of fields are missing:
 ooh_clean |>
   filter(is.na(median_pay_usd) | is.na(growth_pct) | is.na(openings_per_year_n)) |>
   select(slug, median_pay, growth, openings_per_year) |>
   print(n = 20)
 
-# --- keep only rows with the core fields we need for analysis ---------------
 ooh_analysis <- ooh_clean |>
   filter(!is.na(median_pay_usd), !is.na(growth_pct),
          !is.na(jobs_2025_n), !is.na(openings_per_year_n))
